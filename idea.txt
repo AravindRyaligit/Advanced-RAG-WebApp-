@@ -1,0 +1,15 @@
+I want a chatbot that can answer questions from documents like PDFs, websites, or internal docs. The pipeline is basically:
+
+Document ingestion → Break documents into chunks.
+
+Embeddings → Turn chunks into vectors.
+
+Vector store / FAISS → Store vectors for similarity search.
+
+Query → User asks question.
+
+Retrieval → Retrieve most relevant chunks.
+
+RAG (LLM + re-ranker) → LLM generates answer using retrieved chunks.
+
+API / frontend → Serve chatbot.
