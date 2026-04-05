@@ -1,0 +1,11 @@
+.git
+.env
+__pycache__
+*.pyc
+*.pyo
+data/chroma_db/*
+uploads/*
+.cursor
+.vscode
+*.md
+!README.md

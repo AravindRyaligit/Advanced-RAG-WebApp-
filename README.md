@@ -1,68 +1,100 @@
-# RAG-based Chatbot
+# RAG Agent - PDF Q&A
 
-A powerful Retrieval-Augmented Generation (RAG) chatbot that allows users to upload documents (PDFs, TXTs) and ask questions based on their content. The system uses embeddings and a vector store to retrieve relevant information and an LLM to generate accurate, context-aware answers.
+A Retrieval-Augmented Generation agent that lets you upload PDF documents and ask questions about their content. Built with LangChain, Groq (Llama 3.3 70B), ChromaDB, and a BGE reranker for improved accuracy.
 
-## 🚀 Features
-- **Document Ingestion:** Upload and process PDF and TXT documents.
-- **Smart Retrieval:** Vector-based search to find the most relevant document chunks.
-- **Cross-Encoder Re-ranking:** (Optional) Use a state-of-the-art `ms-marco-MiniLM` cross-encoder model to re-score and select the highest-quality context for the LLM.
-- **RAG Pipeline:** Combines retrieved context with an LLM (Llama 3) to answer questions accurately.
-- **Interactive UI:** A clean, modern frontend built with React and Vite featuring a dual-tab layout for Normal and Re-ranked RAG modes.
+## Architecture
 
-## 🛠️ Technology Stack
-- **Backend:** FastAPI (Python), LangChain, FAISS (Vector Store), Sentence-Transformers (Cross-Encoder)
-- **Frontend:** React, Vite, Lucide React (Icons)
-- **Deployment:** Ready for local development with Uvicorn and Vite Dev Server.
+| Component      | Technology                  |
+| -------------- | --------------------------- |
+| LLM            | Llama 3.3 70B via Groq API  |
+| Embeddings     | BAAI/bge-base-en-v1.5 (local) |
+| Re-ranker      | BAAI/bge-reranker-base (local) |
+| Vector Store   | ChromaDB (persistent)       |
+| Framework      | LangChain                   |
+| Backend API    | FastAPI                     |
+| Frontend       | Streamlit                   |
 
-## 📁 Project Structure
-- `backend/` - Contains the FastAPI application, RAG pipeline logic, and vector store.
-  - `main.py` - FastAPI application exposing `/upload`, `/chat`, and `/documents` endpoints.
-  - `rag_pipeline.py` - Core logic for document ingestion, embedding, and answering questions.
-- `frontend/` - Contains the React user interface.
-  - `src/App.jsx` - Main React component for the chat interface.
-  - `package.json` - Frontend dependencies and scripts.
+## Setup
 
-## ⚙️ Setup & Installation
+### 1. Install dependencies
 
-### Backend Setup
-1. Navigate to the `backend/` directory:
-   ```bash
-   cd backend
-   ```
-2. Create a virtual environment and activate it:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows use: venv\Scripts\activate
-   ```
-3. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Set up environment variables (e.g., API keys) in a `.env` file.
-5. Run the FastAPI development server:
-   ```bash
-   uvicorn main:app --reload
-   ```
+```bash
+cd A:\Projects\RAG
+pip install -r requirements.txt
+```
 
-### Frontend Setup
-1. Navigate to the `frontend/` directory:
-   ```bash
-   cd frontend
-   ```
-2. Install the required dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Vite development server:
-   ```bash
-   npm run dev
-   ```
+### 2. Configure environment
 
-## 📝 Usage
-1. Open the frontend in your browser (usually `http://localhost:5173`).
-2. Upload a PDF or TXT document using the provided interface.
-3. Use the tab switcher at the top to choose between **"Normal RAG"** (faster) and **"+ Re-ranker"** (higher accuracy).
-4. Start asking questions related to the uploaded document in the chat interface!
+Copy the example env file and add your Groq API key:
 
-## 📜 License
-This project is open-source and free to use.
+```bash
+copy .env.example .env
+```
+
+Edit `.env` and set your key:
+
+```
+GROQ_API_KEY=gsk_your_actual_key
+```
+
+Get a free API key at https://console.groq.com
+
+### 3. Start the backend
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+The first run will download the embedding model (~440 MB) and reranker model (~1.1 GB) from HuggingFace. Subsequent runs use the cached models.
+
+### 4. Start the frontend
+
+In a separate terminal:
+
+```bash
+streamlit run frontend/app.py
+```
+
+The Streamlit app opens at http://localhost:8501.
+
+## Usage
+
+1. Open the Streamlit app in your browser.
+2. Upload a PDF using the sidebar.
+3. Wait for indexing to complete.
+4. Ask questions in the chat interface.
+5. View source references in the expandable "View Sources" section under each answer.
+
+## API Endpoints
+
+| Method   | Endpoint              | Description                      |
+| -------- | --------------------- | -------------------------------- |
+| `POST`   | `/upload`             | Upload and index a PDF           |
+| `POST`   | `/query`              | Ask a question                   |
+| `GET`    | `/documents`          | List indexed documents           |
+| `DELETE` | `/documents/{doc_id}` | Remove a document from the index |
+| `GET`    | `/health`             | Health check                     |
+
+## Project Structure
+
+```
+RAG/
+  backend/
+    __init__.py
+    main.py                 # FastAPI application
+    config.py               # Settings (env vars, model config)
+    document_processor.py   # PDF parsing and text chunking
+    embeddings.py           # BGE embedding model
+    vectorstore.py          # ChromaDB operations
+    reranker.py             # Cross-encoder reranker
+    rag_chain.py            # RAG pipeline (retrieve -> rerank -> generate)
+    schemas.py              # Pydantic request/response models
+  frontend/
+    app.py                  # Streamlit chat UI
+  data/
+    chroma_db/              # Persistent vector store
+  uploads/                  # Stored PDF files
+  requirements.txt
+  .env.example
+  README.md
+```

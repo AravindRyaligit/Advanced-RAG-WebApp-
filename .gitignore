@@ -1,13 +1,12 @@
-# Node
-node_modules/
-dist/
-build/
-
-# Python
+.env
 __pycache__/
 *.pyc
-venv/
-.env
-
-# OS
-.DS_Store
+*.pyo
+data/chroma_db/
+uploads/*
+!uploads/.gitkeep
+.cursor/
+.vscode/
+*.egg-info/
+dist/
+build/

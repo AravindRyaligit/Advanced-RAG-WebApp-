@@ -1,11 +1,48 @@
-import os
-import json
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from rag_pipeline import ingest_document, ask_question
-from pydantic import BaseModel
+from __future__ import annotations
 
-app = FastAPI(title="RAG Chatbot API")
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+from backend.config import settings
+from backend.schemas import (
+    UploadResponse,
+    QueryRequest,
+    QueryResponse,
+    DocumentsListResponse,
+    DocumentInfo,
+    DeleteResponse,
+    HealthResponse,
+)
+from backend.document_processor import process_pdf, delete_upload
+from backend.vectorstore import add_documents, list_documents, delete_by_doc_id
+from backend.rag_chain import query_rag
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Loading embedding model (first run downloads ~440 MB)...")
+    from backend.embeddings import get_embedding_model
+    get_embedding_model()
+
+    logger.info("Loading reranker model (first run downloads ~1.1 GB)...")
+    from backend.reranker import get_reranker
+    get_reranker()
+
+    logger.info("Models loaded. Server is ready.")
+    yield
+
+
+app = FastAPI(
+    title="RAG Agent API",
+    description="PDF-based Retrieval-Augmented Generation with Groq Llama 70B",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,65 +52,78 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ChatRequest(BaseModel):
-    query: str
 
-TRACKER_FILE = "uploaded_docs.json"
+@app.post("/upload", response_model=UploadResponse)
+async def upload_pdf(file: UploadFile = File(...)):
+    """Upload a PDF document, extract text, chunk, embed, and store in ChromaDB."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
 
-def get_tracked_docs():
-    if os.path.exists(TRACKER_FILE):
-        with open(TRACKER_FILE, "r") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return []
-    return []
+    contents = await file.read()
+    if len(contents) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-def add_tracked_doc(filename: str):
-    docs = get_tracked_docs()
-    if filename not in docs:
-        docs.append(filename)
-        with open(TRACKER_FILE, "w") as f:
-            json.dump(docs, f)
-
-@app.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
-    if not file.filename.endswith((".pdf", ".txt")):
-        raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported.")
-    
-    # Save the file temporarily
-    file_location = f"temp_{file.filename}"
     try:
-        with open(file_location, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        
-        # Ingest document into vector store
-        ingest_document(file_location, file.filename)
-        
-        # Track the successfully uploaded document
-        add_tracked_doc(file.filename)
-        
-        return {"message": f"Successfully ingested {file.filename}"}
+        doc_id, chunks = process_pdf(file.filename, contents)
+        add_documents(chunks)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if os.path.exists(file_location):
-            os.remove(file_location)
+        logger.exception("Failed to process PDF")
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {e}")
 
-@app.get("/documents")
+    return UploadResponse(
+        doc_id=doc_id,
+        filename=file.filename,
+        chunk_count=len(chunks),
+        message=f"Successfully indexed {len(chunks)} chunks from '{file.filename}'.",
+    )
+
+
+@app.post("/query", response_model=QueryResponse)
+async def query(request: QueryRequest):
+    """Ask a question against the indexed documents."""
+    if not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty.")
+
+    if not settings.groq_api_key:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY is not configured.")
+
+    try:
+        result = query_rag(request.question)
+    except Exception as e:
+        logger.exception("RAG query failed")
+        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
+
+    return QueryResponse(**result)
+
+
+@app.get("/documents", response_model=DocumentsListResponse)
 async def get_documents():
-    docs = get_tracked_docs()
-    return {"documents": docs}
+    """List all indexed documents."""
+    docs = list_documents()
+    return DocumentsListResponse(
+        documents=[DocumentInfo(**d) for d in docs]
+    )
 
-@app.post("/chat")
-async def chat(request: ChatRequest):
+
+@app.delete("/documents/{doc_id}", response_model=DeleteResponse)
+async def delete_document(doc_id: str):
+    """Remove a document and its chunks from the index."""
     try:
-        answer = ask_question(request.query)
-        return {"answer": answer}
+        delete_by_doc_id(doc_id)
+        delete_upload(doc_id)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Delete failed")
+        raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
 
-@app.get("/")
-def health_check():
-    return {"status": "ok"}
+    return DeleteResponse(doc_id=doc_id, message="Document deleted successfully.")
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health():
+    """Health check endpoint."""
+    return HealthResponse(
+        status="healthy",
+        llm_model=settings.llm_model,
+        embedding_model=settings.embedding_model,
+        reranker_model=settings.reranker_model,
+    )
