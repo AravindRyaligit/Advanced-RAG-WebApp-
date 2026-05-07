@@ -13,11 +13,15 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
 
-    llm_model: str = "llama-3.3-70b-versatile"
+    llm_model: str = "llama3:8b"
     llm_temperature: float = 0.1
+    ollama_base_url: str = "http://localhost:11434"
 
     embedding_model: str = "BAAI/bge-base-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-base"
+    
+    enable_guardrails: bool = True
+    guardrail_model: str = "llama-guard-3-8b"
 
     chunk_size: int = 1000
     chunk_overlap: int = 200

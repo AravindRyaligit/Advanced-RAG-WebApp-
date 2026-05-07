@@ -126,4 +126,6 @@ async def health():
         llm_model=settings.llm_model,
         embedding_model=settings.embedding_model,
         reranker_model=settings.reranker_model,
+        guardrails_enabled=settings.enable_guardrails,
+        guardrail_model=settings.guardrail_model,
     )

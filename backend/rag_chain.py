@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from langchain_groq import ChatGroq
+from langchain_community.chat_models import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
@@ -8,6 +8,7 @@ from langchain_core.documents import Document
 from backend.config import settings
 from backend.vectorstore import similarity_search
 from backend.reranker import rerank
+from backend.guardrails import check_input, check_output
 
 
 SYSTEM_PROMPT = """\
@@ -23,10 +24,10 @@ Context:
 USER_PROMPT = "{question}"
 
 
-def _get_llm() -> ChatGroq:
-    return ChatGroq(
-        api_key=settings.groq_api_key,
-        model_name=settings.llm_model,
+def _get_llm() -> ChatOllama:
+    return ChatOllama(
+        base_url=settings.ollama_base_url,
+        model=settings.llm_model,
         temperature=settings.llm_temperature,
     )
 
@@ -57,6 +58,13 @@ def query_rag(question: str) -> dict:
 
     Returns dict with 'answer' and 'sources'.
     """
+    is_safe, reason = check_input(question)
+    if not is_safe:
+        return {
+            "answer": f"I cannot answer this question. The request violates safety policies. ({reason})",
+            "sources": []
+        }
+
     retrieved_docs = similarity_search(question)
 
     reranked_docs = rerank(question, retrieved_docs)
@@ -71,6 +79,13 @@ def query_rag(question: str) -> dict:
     chain = prompt | _get_llm() | StrOutputParser()
 
     answer = chain.invoke({"context": context, "question": question})
+
+    is_safe_output, output_reason = check_output(question, answer)
+    if not is_safe_output:
+        return {
+            "answer": f"The generated response was blocked due to safety policy violations. ({output_reason})",
+            "sources": _build_sources(reranked_docs)
+        }
 
     return {
         "answer": answer,

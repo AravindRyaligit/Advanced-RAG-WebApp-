@@ -45,3 +45,5 @@ class HealthResponse(BaseModel):
     llm_model: str
     embedding_model: str
     reranker_model: str
+    guardrails_enabled: bool | None = None
+    guardrail_model: str | None = None
